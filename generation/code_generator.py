@@ -53,7 +53,7 @@ def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
     code.append("}")
     code.append("")
 
-    # Token constructor helpers: action blocks can call e.g. INT_LIT(lxm), IDENT(lxm)
+    # Token constructor helpers
     code.append("# --- Token constructor helpers ---")
     code.append("class _Tok:")
     code.append("    def __init__(self, name): self._name = name")
@@ -69,10 +69,8 @@ def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
     token_names = set()
     for rule in doc.rules:
         if rule.action:
-            # Tokens called as functions: INT_LIT(lxm)
             for m in _re.finditer(r'\breturn\s+([A-Z_][A-Z0-9_]*)\s*\(', rule.action):
                 token_names.add(m.group(1))
-            # Tokens returned bare: return KW_MACRO
             for m in _re.finditer(r'\breturn\s+([A-Z_][A-Z0-9_]*)(?!\s*[\(\w])', rule.action):
                 name = m.group(1)
                 if name not in ('None', 'True', 'False'):
@@ -84,46 +82,48 @@ def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
             code.append(f"{name} = _Tok({repr(name)})")
         code.append("")
 
-    # Lexer engine
+    # Lexer engine — now with self.line tracking
     code.append(f"""
-        class Lexer:
-            def __init__(self, text=None, file_path=None):
-                if file_path:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        self.text = f.read()
-                elif text is not None:
-                    self.text = text
+class Lexer:
+    def __init__(self, text=None, file_path=None):
+        if file_path:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                self.text = f.read()
+        elif text is not None:
+            self.text = text
+        else:
+            raise ValueError("Must provide either 'text' or 'file_path'")
+        self.pos = 0
+        self.line = 1
+
+    def {doc.entrypoint_name}(self):
+        while self.pos < len(self.text) + 1:
+            state = START_STATE
+            last_accept_idx = -1
+            last_accept_pos = -1
+            current_pos = self.pos
+
+            while current_pos <= len(self.text):
+                char = self.text[current_pos] if current_pos < len(self.text) else chr(256)
+                trans = TRANSITIONS.get(state, {{}})
+                next_state = trans.get(char)
+                if next_state is not None:
+                    state = next_state
+                    current_pos += 1
+                    if state in ACCEPTS:
+                        last_accept_idx = ACCEPTS[state]
+                        last_accept_pos = current_pos
                 else:
-                    raise ValueError("Must provide either 'text' or 'file_path'")
-                self.pos = 0
+                    break
 
-            def {doc.entrypoint_name}(self):
-                while self.pos < len(self.text) + 1:
-                    state = START_STATE
-                    last_accept_idx = -1
-                    last_accept_pos = -1
-                    current_pos = self.pos
-
-                    while current_pos <= len(self.text):
-                        char = self.text[current_pos] if current_pos < len(self.text) else chr(256)
-                        trans = TRANSITIONS.get(state, {{}})
-                        next_state = trans.get(char)
-                        if next_state is not None:
-                            state = next_state
-                            current_pos += 1
-                            if state in ACCEPTS:
-                                last_accept_idx = ACCEPTS[state]
-                                last_accept_pos = current_pos
-                        else:
-                            break
-
-                    if last_accept_idx != -1:
-                        lxm = self.text[self.pos:last_accept_pos]
-                        if last_accept_pos > len(self.text):
-                            lxm = self.text[self.pos:]
-                        self.pos = last_accept_pos
-                        lexbuf = self.text  # Exposed intentionally for generic usages
-    """)
+            if last_accept_idx != -1:
+                lxm = self.text[self.pos:last_accept_pos]
+                if last_accept_pos > len(self.text):
+                    lxm = self.text[self.pos:]
+                self.line += lxm.count('\\n')
+                self.pos = last_accept_pos
+                lexbuf = self.text  # Exposed intentionally for generic usages
+""")
 
     # Embed rule actions
     first = True
@@ -141,13 +141,15 @@ def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
     code.append("""
             else:
                 char_err = self.text[self.pos] if self.pos < len(self.text) else "EOF"
-                print(f"Error léxico: secuencia irreconocible '{char_err}' en la posición {self.pos}")
+                if char_err == '\\n':
+                    self.line += 1
+                print(f"Error léxico: secuencia irreconocible {repr(char_err)} en la línea {self.line}, posición {self.pos}")
                 self.pos += 1
                 continue
 
             if self.pos >= len(self.text) and last_accept_pos > len(self.text):
                 break
-    """)
+""")
 
     if doc.trailer:
         code.append("")
