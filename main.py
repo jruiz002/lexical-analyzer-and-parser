@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import argparse
 import sys
 import os
@@ -30,16 +29,15 @@ def main():
         print(f"    - Found {len(doc.lets)} lets.")
         print(f"    - Found {len(doc.rules)} rules in entrypoint '{doc.entrypoint_name}'.")
 
-        print("\n=== AST Generado ===")
+        print("\nAST Generado")
         doc.print_tree()
-        print("====================\n")
+        print("=\n")
         print(f"    <- Salida: AST con Estructura Formal (Header, {len(doc.lets)} definitions, {len(doc.rules)} rules)\n")
 
         print("[*] Fase 2: Expansor de expresiones regulares")
         print(f"    -> Módulo: dfa.regex_expander")
         print(f"    -> Entrada: AST del programa")
         expanded_rules = expand_document(doc)
-        # Update the document to contain the expanded rules (needed for building dfa and tracking actions)
         doc.rules = expanded_rules
 
         print(f"    <- Salida: AST con Expresiones Regulares Expandidas ({len(expanded_rules)} rules)\n")
