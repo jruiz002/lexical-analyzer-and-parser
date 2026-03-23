@@ -1,3 +1,4 @@
+# Representa un token con su tipo, valor y línea donde aparece
 class Token:
     def __init__(self, type_: str, value: str, line: int):
         self.type = type_
@@ -12,6 +13,7 @@ class YalLexerError(Exception):
     pass
 
 
+# Lexer para archivos .yal, convierte el texto fuente en una lista de tokens
 class YalLexer:
     def __init__(self, text: str):
         self.text = text
@@ -19,6 +21,7 @@ class YalLexer:
         self.line = 1
         self.tokens = []
 
+    # Recorre el texto completo y produce la lista de tokens reconociendo cada tipo
     def tokenize(self):
         while self.pos < len(self.text):
             char = self.text[self.pos]
@@ -75,6 +78,7 @@ class YalLexer:
         self.tokens.append(Token("EOF", "", self.line))
         return self.tokens
 
+    # Salta comentarios anidados con (* ... *), lleva la cuenta de profundidad
     def _skip_comment(self):
         depth = 0
         while self.pos < len(self.text):
@@ -93,6 +97,7 @@ class YalLexer:
         if depth > 0:
             raise YalLexerError(f"Unterminated comment starting at line {self.line}")
 
+    # Lee un bloque con soporte para bloques anidados y retorna el token BLOCK
     def _read_block(self):
         start_line = self.line
         start_pos = self.pos
@@ -115,6 +120,7 @@ class YalLexer:
             raise YalLexerError(f"Unterminated block {{ ... }} starting at line {start_line}")
         return Token("BLOCK", "".join(content), start_line)
 
+    # Lee un literal de cadena entre comillas dobles y maneja secuencias de escape
     def _read_string(self):
         start_line = self.line
         self.pos += 1
@@ -137,6 +143,7 @@ class YalLexer:
                 self.pos += 1
         raise YalLexerError(f"Unterminated string starting at line {start_line}")
 
+    # Lee un literal de carácter entre comillas simples, con soporte para escape
     def _read_char(self):
         start_line = self.line
         self.pos += 1
@@ -153,6 +160,7 @@ class YalLexer:
             return Token("CHAR", content, start_line)
         raise YalLexerError(f"Invalid char literal starting at line {start_line}")
 
+    # Lee un identificador alfanumérico o con guión bajo desde la posición actual
     def _read_ident(self):
         start_pos = self.pos
         while self.pos < len(self.text) and (self.text[self.pos].isalnum() or self.text[self.pos] == '_'):

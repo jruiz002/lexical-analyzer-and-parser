@@ -3,8 +3,8 @@ from core.ast_nodes import *
 class ExpansionError(Exception):
     pass
 
+# Copia y expande recursivamente un nodo de regex, resolviendo los IdentNodes con el entorno dado
 def expand_regex(node: RegexNode, env: dict) -> RegexNode:
-    """Recursively deep copies and expands RegexNodes resolving IdentNodes using env."""
     if isinstance(node, AnyNode):
         return AnyNode()
     elif isinstance(node, CharNode):
@@ -12,17 +12,17 @@ def expand_regex(node: RegexNode, env: dict) -> RegexNode:
     elif isinstance(node, StringNode):
         return StringNode(node.value)
     elif isinstance(node, SetNode):
-        # We need a new copy of the set
+        # hay que hacer una copia nueva del conjunto
         return SetNode(set(node.elements), node.negated)
     elif isinstance(node, IdentNode):
         if node.name == "eof":
             return CharNode(chr(256))
         if node.name not in env:
             raise ExpansionError(f"Undefined identifier '{node.name}' used in regex")
-        # Recursively expand in case the env stored regex has its own idents (though we expand them sequentially so they shouldn't, but copy is needed!)
+        # se expande recursivamente por si el env tiene sus propios idents, igual se necesita copiar
         return expand_regex(env[node.name], env)
     
-    # Operators
+    # Operadores
     elif isinstance(node, ConcatNode):
         return ConcatNode(expand_regex(node.left, env), expand_regex(node.right, env))
     elif isinstance(node, UnionNode):
@@ -38,13 +38,10 @@ def expand_regex(node: RegexNode, env: dict) -> RegexNode:
     
     raise ExpansionError(f"Unknown node type during expansion: {type(node)}")
 
+# Expande todas las reglas de un YalDocument y retorna la lista de RuleDecls con los regex ya resueltos
 def expand_document(doc: YalDocument) -> List[RuleDecl]:
-    """
-    Expands all rules in a YalDocument.
-    Returns a list of RuleDecls with fully expanded regexes.
-    """
     env = {}
-    # Expand lets sequentially
+    # se expanden los lets en orden para que cada uno pueda usar los anteriores
     for let_decl in doc.lets:
         expanded_regex = expand_regex(let_decl.regex, env)
         env[let_decl.name] = expanded_regex

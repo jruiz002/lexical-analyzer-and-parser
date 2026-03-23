@@ -17,56 +17,58 @@ def main():
     args = parser.parse_args()
 
     if not os.path.exists(args.input):
-        print(f"Error: input file '{args.input}' not found.")
+        print(f"ERROR: input file '{args.input}' not found.")
         sys.exit(1)
 
     try:
-        print(f"[*] Fase 1: Lexer y Parser de YALex")
-        print(f"    -> Módulo: parsing.yal_parser")
-        print(f"    -> Entrada: Archivo plano '{args.input}'")
+        print("\n")
+        print("-"*50)
+        print(f"FASE 1: Lexer y Parser de YALex")
+        print(f"- Módulo: parsing.yal_parser")
+        print(f"- Entrada: Archivo plano '{args.input}'")
         doc: YalDocument = parse_yal(args.input)
-
-        print(f"    - Found {len(doc.lets)} lets.")
-        print(f"    - Found {len(doc.rules)} rules in entrypoint '{doc.entrypoint_name}'.")
+        print(f"- Encontrado:")
+        print(f"     - {len(doc.lets)} lets.")
+        print(f"     - {len(doc.rules)} rules in entrypoint '{doc.entrypoint_name}'.")
 
         print("\nAST Generado")
         doc.print_tree()
-        print("=\n")
-        print(f"    <- Salida: AST con Estructura Formal (Header, {len(doc.lets)} definitions, {len(doc.rules)} rules)\n")
+        print(f"\n- Salida: AST con Estructura Formal (Header, {len(doc.lets)} definitions, {len(doc.rules)} rules)\n")
 
-        print("[*] Fase 2: Expansor de expresiones regulares")
-        print(f"    -> Módulo: dfa.regex_expander")
-        print(f"    -> Entrada: AST del programa")
+        print("-"*50)
+        print("FASE 2: Expansor de expresiones regulares")
+        print(f"- Módulo: dfa.regex_expander")
+        print(f"- Entrada: AST del programa")
         expanded_rules = expand_document(doc)
         doc.rules = expanded_rules
+        print(f"- Salida: AST con Expresiones Regulares Expandidas ({len(expanded_rules)} rules)\n")
 
-        print(f"    <- Salida: AST con Expresiones Regulares Expandidas ({len(expanded_rules)} rules)\n")
-
-        print("[*] Fase 3: Construcción Directa de DFA")
-        print(f"    -> Módulo: dfa.direct_dfa_builder")
-        print(f"    -> Entrada: Lista de Regex expandidas")
+        print("-"*50)
+        print("FASE 3: Construcción Directa de DFA")
+        print(f"- Módulo: dfa.direct_dfa_builder")
+        print(f"- Entrada: Lista de Regex expandidas")
         builder = DirectDFABuilder()
         dfa = builder.build(expanded_rules)
-        print(f"    <- Salida: DFA Global Determinístico ({len(dfa.get_states())} estados)\n")
+        print(f"- Salida: DFA Global Determinístico ({len(dfa.get_states())} estados)\n")
 
-        print("[*] Fase 4: Minimización de DFA")
-        print(f"    -> Módulo: dfa.dfa_minimizer")
-        print(f"    -> Entrada: DFA Global Determinístico")
+        print("-"*50)
+        print("FASE 4: Minimización de DFA")
+        print(f"- Módulo: dfa.dfa_minimizer")
+        print(f"- Entrada: DFA Global Determinístico")
         min_dfa = minimize_dfa(dfa)
-        print(f"    <- Salida: DFA Mínimo ({len(min_dfa.get_states())} estados)\n")
+        print(f"- Salida: DFA Mínimo ({len(min_dfa.get_states())} estados)\n")
 
-        print(f"[*] Fase 5: Generación de código Python")
-        print(f"    -> Módulo: generation.code_generator")
-        print(f"    -> Entrada: DFA Mínimo, Header, Trailer, Action blocks")
-        # Create output directory if it doesn't exist
+        print("-"*50)
+        print(f"FASE 5: Generación de código Python")
+        print(f"- Módulo: generation.code_generator")
+        print(f"- Entrada: DFA Mínimo, Header, Trailer, Action blocks")
         output_dir = os.path.dirname(args.output)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
-            
         generate_lexer(doc, min_dfa, args.output)
+        print(f"- Salida: Archivo fuente del analizador léxico '{args.output}'")
 
-        print(f"    <- Salida: Archivo fuente del analizador léxico '{args.output}'")
-        print("\n[+] Compilación de YALex finalizada exitosamente.")
+        print("\nRESULTADO: Compilación de YALex finalizada exitosamente.")
 
     except Exception as e:
         print(f"Compilation error: {e}")

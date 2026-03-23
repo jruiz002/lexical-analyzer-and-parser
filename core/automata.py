@@ -1,25 +1,26 @@
 import itertools
 from typing import Dict, Set, Optional, Any
 
+# Representa un estado en un NFA o DFA, guarda sus transiciones y si es de aceptación.
 class State:
-    """Represents a state in an NFA or DFA."""
     _id_counter = itertools.count()
 
     def __init__(self, is_accepting: bool = False, tag: Optional[Any] = None):
         self.id = next(self._id_counter)
         self.is_accepting = is_accepting
-        # tag can store information like what regex rule this accepting state matches
+        # tag guarda qué regla del regex acepta este estado
         self.tag = tag
-        # transitions: symbol -> set of States (for NFA) or single State (for DFA)
+        # para NFA: símbolo -> conjunto de estados; para DFA: símbolo -> un estado
         self.transitions: Dict[str, Set['State']] = {}
-        # epsilon transitions (for NFA)
         self.epsilon_transitions: Set['State'] = set()
 
+    # Agrega una transición con símbolo hacia otro estado.
     def add_transition(self, symbol: str, state: 'State'):
         if symbol not in self.transitions:
             self.transitions[symbol] = set()
         self.transitions[symbol].add(state)
 
+    # Agrega una transición épsilon hacia otro estado.
     def add_epsilon_transition(self, state: 'State'):
         self.epsilon_transitions.add(state)
 
@@ -28,42 +29,41 @@ class State:
         return f"q{self.id}{acc}"
 
 
+# Representa un Autómata Finito No Determinista con su estado inicial y estados de aceptación.
 class NFA:
-    """Represents a Nondeterministic Finite Automaton."""
     def __init__(self, start_state: State, accept_states: Set[State]):
         self.start_state = start_state
         self.accept_states = accept_states
 
+    # Retorna todos los estados del NFA haciendo un recorrido BFS/DFS.
     def get_states(self) -> Set[State]:
-        """Returns all states in the NFA via BFS/DFS."""
         visited = set()
         stack = [self.start_state]
         while stack:
             state = stack.pop()
             if state not in visited:
                 visited.add(state)
-                # target states from epsilon
                 for next_state in state.epsilon_transitions:
                     stack.append(next_state)
-                # target states from symbols
                 for next_states in state.transitions.values():
                     for next_state in next_states:
                         stack.append(next_state)
         return visited
 
 
+# Estado para el DFA, guarda el conjunto de estados del NFA que representa.
 class DFAState:
-    """Represents a state specifically tailored for a DFA."""
     _id_counter = itertools.count()
 
     def __init__(self, nfa_states: frozenset = None, is_accepting: bool = False, tag: Optional[Any] = None):
         self.id = next(self._id_counter)
-        # the set of NFA states (or AST positions for direct DFA) this DFA state represents
+        # conjunto de estados NFA (o posiciones del AST) que este estado DFA representa
         self.nfa_states = nfa_states if nfa_states is not None else frozenset()
         self.is_accepting = is_accepting
         self.tag = tag
         self.transitions: Dict[str, 'DFAState'] = {}
 
+    # Agrega una transición determinista con símbolo hacia otro estado DFA.
     def add_transition(self, symbol: str, state: 'DFAState'):
         self.transitions[symbol] = state
 
@@ -72,14 +72,14 @@ class DFAState:
         return f"D{self.id}{acc}"
 
 
+# Representa un Autómata Finito Determinista con su estado inicial y estados de aceptación.
 class DFA:
-    """Represents a Deterministic Finite Automaton."""
     def __init__(self, start_state: DFAState, accept_states: Set[DFAState]):
         self.start_state = start_state
         self.accept_states = accept_states
 
+    # Retorna todos los estados del DFA recorriéndolos desde el estado inicial.
     def get_states(self) -> Set[DFAState]:
-        """Returns all states in the DFA."""
         visited = set()
         stack = [self.start_state]
         while stack:

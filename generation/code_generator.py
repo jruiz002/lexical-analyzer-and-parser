@@ -3,11 +3,13 @@ from core.ast_nodes import YalDocument
 import re as _re
 import sys
 
+# Limpia las acciones del .yal
 def _preprocess_action(action: str) -> str:
     action = _re.sub(r'\breturn\s+lexbuf\b', 'continue', action)
     action = _re.sub(r'\braise\s*\(', 'raise Exception(', action)
     return action
 
+# Genera el archivo del lexer en Python a partir del documento .yal y el DFA construido
 def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
     state_to_id = {}
     id_cnt = 0
@@ -31,7 +33,7 @@ def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
 
     code = []
     
-    # Include Header if present
+    # incluir el header del .yal si existe
     if doc.header:
         clean_header = _re.sub(r'\(\*.*?\*\)', '', doc.header, flags=_re.DOTALL).strip()
         if clean_header:
@@ -53,7 +55,7 @@ def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
     code.append("}")
     code.append("")
 
-    # Token constructor helpers
+    # clase auxiliar para que los tokens se puedan usar como constructores tipo TOKEN("lexema")
     code.append("# --- Token constructor helpers ---")
     code.append("class _Tok:")
     code.append("    def __init__(self, name): self._name = name")
@@ -65,7 +67,7 @@ def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
     code.append("    def __hash__(self): return hash(self._name)")
     code.append("")
 
-    # Collect all token names used in action blocks
+    # busca todos los nombres de tokens usados en las acciones de las reglas
     token_names = set()
     for rule in doc.rules:
         if rule.action:
@@ -82,7 +84,7 @@ def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
             code.append(f"{name} = _Tok({repr(name)})")
         code.append("")
 
-    # Lexer engine — now with self.line tracking
+    # genera la clase Lexer con el motor de simulación del DFA y tracking de línea
     code.append(f"""
 class Lexer:
     def __init__(self, text=None, file_path=None):
@@ -122,10 +124,10 @@ class Lexer:
                     lxm = self.text[self.pos:]
                 self.line += lxm.count('\\n')
                 self.pos = last_accept_pos
-                lexbuf = self.text  # Exposed intentionally for generic usages
+                lexbuf = self.text  # expuesto intencionalmente para usos genéricos
 """)
 
-    # Embed rule actions
+    # emite el if/elif por cada regla con su acción correspondiente ya preprocesada
     first = True
     for i, rule in enumerate(doc.rules):
         prefix = "if" if first else "elif"
@@ -155,7 +157,7 @@ class Lexer:
         code.append("")
         code.append(doc.trailer.strip())
 
-    # __main__ block
+    # bloque __main__ para poder correr el lexer generado directamente desde la terminal
     code.append("")
     code.append("")
     code.append("if __name__ == \"__main__\":")

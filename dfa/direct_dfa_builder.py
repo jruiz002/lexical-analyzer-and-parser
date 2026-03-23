@@ -1,6 +1,7 @@
 from core.ast_nodes import *
 from core.automata import DFA, DFAState
 
+# Construye un DFA directamente desde el AST del regex sin pasar por un NFA
 class DirectDFABuilder:
     def __init__(self):
         self.pos_count = 1
@@ -8,14 +9,15 @@ class DirectDFABuilder:
         self.followpos = {}
         self.alphabet = set()
 
+    # Convierte StringNodes en concatenaciones de CharNodes y DiffNodes en SetNodes
     def preprocess(self, node: RegexNode) -> RegexNode:
-        """Transforms StringNode into Concats, and DiffNode into SetNode."""
         if isinstance(node, StringNode):
             if len(node.value) == 0:
                 raise ValueError("Empty string not supported natively without EpsilonNode")
             if len(node.value) == 1:
                 return CharNode(node.value[0])
-            # Build right-heavy Concat tree
+            # construye el árbol de concat cargado a la derecha
+
             current = CharNode(node.value[-1])
             for char in reversed(node.value[:-1]):
                 current = ConcatNode(CharNode(char), current)
@@ -25,9 +27,10 @@ class DirectDFABuilder:
             left = self.preprocess(node.left)
             right = self.preprocess(node.right)
             if isinstance(left, SetNode) and isinstance(right, SetNode):
-                # evaluate set difference
+                # calcula la diferencia de conjuntos directamente
                 new_elements = left.elements - right.elements
-                return SetNode(new_elements, negated=False) # Negated logic complicates this, assume simple
+                return SetNode(new_elements, negated=False)
+            
             else:
                 raise ValueError("Diff operator (#) only supported between Character Sets")
 
@@ -43,7 +46,8 @@ class DirectDFABuilder:
             return OptionNode(self.preprocess(node.child))
             
         return node
-        
+
+    # Recorre el árbol y recolecta todos los símbolos que aparecen en el regex
     def gather_alphabet(self, node: RegexNode):
         if isinstance(node, CharNode):
             self.alphabet.add(node.char)
@@ -56,6 +60,7 @@ class DirectDFABuilder:
         elif isinstance(node, StarNode) or isinstance(node, PlusNode) or isinstance(node, OptionNode):
             self.gather_alphabet(node.child)
 
+    # Calcula nullable, firstpos, lastpos y followpos para cada nodo del árbol
     def calculate_positions(self, node: RegexNode):
         if isinstance(node, LeafNode):
             node.position = self.pos_count
@@ -108,9 +113,9 @@ class DirectDFABuilder:
             node.nullable = True
             node.firstpos = set(node.child.firstpos)
             node.lastpos = set(node.child.lastpos)
-            
+
+    # Verifica si el nodo hoja en la posición dada hace match con el símbolo recibido
     def match_symbol(self, pos: int, symbol: str) -> bool:
-        """Checks if the leaf node at pos matches the given symbol."""
         node = self.pos_to_node[pos]
         if isinstance(node, AcceptNode):
             return False
@@ -122,32 +127,32 @@ class DirectDFABuilder:
             return (symbol not in node.elements) if node.negated else (symbol in node.elements)
         return False
 
+    # Construye el DFA a partir de la lista de reglas, ejecuta todos los pasos del algoritmo
     def build(self, rules: List[RuleDecl]) -> DFA:
-        # 1. Expand properties & preprocess rules
+        # 1. Preprocesar las reglas y agregarles el AcceptNode con su prioridad
         processed_rules = []
         for i, rule in enumerate(rules):
             clean_regex = self.preprocess(rule.regex)
-            # Append AcceptNode with priority i
             concat = ConcatNode(clean_regex, AcceptNode(i, rule.action))
             processed_rules.append(concat)
             
-        # 2. Union all processed rules into a single syntax tree
+        # 2. Unir todas las reglas en un solo árbol con Union
         root = processed_rules[0]
         for pr in processed_rules[1:]:
             root = UnionNode(root, pr)
             
-        # 3. Gather alphabet (including 0-255 for robust evaluation against ANY)
+        # 3. Recolectar el alfabeto, se agregan ASCII básicos por si ANY no se evalúa de otra forma
         self.gather_alphabet(root)
-        # Add basic ASCII printables and typical whitespace just in case ANY doesn't get tested otherwise
         for c in " \t\n\r" + "".join(chr(i) for i in range(32, 127)):
             self.alphabet.add(c)
             
-        # 4. Calculate nullable, firstpos, lastpos, followpos
+        # 4. Calcular nullable, firstpos, lastpos y followpos
         self.calculate_positions(root)
         
-        # 5. Build DFA
+        # 5. Construir el DFA por subconjuntos
         start_positions = frozenset(root.firstpos)
         
+        # retorna si el conjunto de posiciones es de aceptación y cuál regla tiene mayor prioridad
         def is_accepting(positions: frozenset):
             rule_indices = []
             for pos in positions:
@@ -156,9 +161,9 @@ class DirectDFABuilder:
                     rule_indices.append((node.rule_index, node.action))
             if not rule_indices:
                 return False, None
-            # Lowest index has highest priority
+            # el índice más bajo tiene mayor prioridad
             rule_indices.sort(key=lambda x: x[0])
-            return True, rule_indices[0] # Return Top priority rule index and action
+            return True, rule_indices[0]
             
         acc, top_rule = is_accepting(start_positions)
         start_state = DFAState(start_positions, is_accepting=acc, tag=top_rule)
@@ -172,7 +177,7 @@ class DirectDFABuilder:
         while unmarked:
             s = unmarked.pop(0)
             
-            # For every symbol in alphabet, compute U
+            # para cada símbolo del alfabeto se calcula el conjunto U de followpos
             for a in self.alphabet:
                 u = set()
                 for pos in s.nfa_states:

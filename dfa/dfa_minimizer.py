@@ -1,13 +1,13 @@
 from core.automata import DFA, DFAState
 
+# Minimiza un DFA usando el algoritmo de Hopcroft, retorna un DFA nuevo con menos estados
 def minimize_dfa(dfa: DFA) -> DFA:
-    """Implement Hopcroft's algorithm to minimize the DFA."""
     states = dfa.get_states()
     alphabet = set()
     for s in states:
         alphabet.update(s.transitions.keys())
 
-    # 1. Initial Partitions
+    # 1. Particiones iniciales
     partitions_dict = {}
     for s in states:
         if s.is_accepting:
@@ -22,11 +22,11 @@ def minimize_dfa(dfa: DFA) -> DFA:
     P = list(partitions_dict.values())
     W = list(partitions_dict.values())
 
-    # 2. Hopcroft's algorithm
+    # 2. Algoritmo de Hopcroft
     while W:
         A = W.pop(0)
         for c in alphabet:
-            # Let X be the set of states with transition on c to a state in A
+            # X = estados que con c llegan a algún estado en A
             X = set([s for s in states if c in s.transitions and s.transitions[c] in A])
             if not X:
                 continue
@@ -52,12 +52,12 @@ def minimize_dfa(dfa: DFA) -> DFA:
                     new_P.append(Y)
             P = new_P
 
-    # 3. Rebuild DFA
+    # 3. Reconstruir el DFA con los nuevos estados
     partition_to_new_state = {}
     for part in P:
         sample = next(iter(part))
         
-        # Merge nfa_states just for debugging/inspection (optional)
+        # se mezclan los nfa_states de la partición, útil para inspección/debug
         merged_nfa_states = set()
         for s in part:
             merged_nfa_states.update(s.nfa_states)
@@ -75,7 +75,7 @@ def minimize_dfa(dfa: DFA) -> DFA:
         for s in part:
             state_to_partition[s] = frozen_part
             
-    # Add transitions
+    # Agregar transiciones
     for part in P:
         sample = next(iter(part))
         frozen_part = frozenset(part)
