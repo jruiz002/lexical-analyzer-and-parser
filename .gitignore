@@ -7,6 +7,10 @@ __pycache__/
 output/
 thelexer.py
 
+# Tests
+tests/
+lenguages/
+
 # C extensions
 *.so
 

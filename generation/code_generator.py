@@ -1,6 +1,12 @@
 from core.automata import DFA
 from core.ast_nodes import YalDocument
+import re as _re
 import sys
+
+def _preprocess_action(action: str) -> str:
+    action = _re.sub(r'\breturn\s+lexbuf\b', 'continue', action)
+    action = _re.sub(r'\braise\s*\(', 'raise Exception(', action)
+    return action
 
 def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
     state_to_id = {}
@@ -25,9 +31,12 @@ def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
 
     code = []
     
+    # Include Header if present
     if doc.header:
-        code.append(doc.header.strip())
-        code.append("")
+        clean_header = _re.sub(r'\(\*.*?\*\)', '', doc.header, flags=_re.DOTALL).strip()
+        if clean_header:
+            code.append(clean_header)
+            code.append("")
         
     code.append(f"START_STATE = {state_to_id[dfa.start_state]}")
     code.append("TRANSITIONS = {")
@@ -43,59 +52,88 @@ def generate_lexer(doc: YalDocument, dfa: DFA, output_file: str):
         code.append(f"    {sid}: {rule_idx},")
     code.append("}")
     code.append("")
-    
-    code.append(f"""
-class Lexer:
-    def __init__(self, text=None, file_path=None):
-        if file_path:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                self.text = f.read()
-        elif text is not None:
-            self.text = text
-        else:
-            raise ValueError("Must provide either 'text' or 'file_path'")
-            
-        self.pos = 0
 
-    def {doc.entrypoint_name}(self):
-        while self.pos < len(self.text) + 1:
-            state = START_STATE
-            last_accept_idx = -1
-            last_accept_pos = -1
-            current_pos = self.pos
-            
-            while current_pos <= len(self.text):
-                char = self.text[current_pos] if current_pos < len(self.text) else chr(256)
-                
-                trans = TRANSITIONS.get(state, {{}})
-                next_state = trans.get(char)
-                
-                if next_state is not None:
-                    state = next_state
-                    current_pos += 1
-                    if state in ACCEPTS:
-                        last_accept_idx = ACCEPTS[state]
-                        last_accept_pos = current_pos
+    # Token constructor helpers: action blocks can call e.g. INT_LIT(lxm), IDENT(lxm)
+    code.append("# --- Token constructor helpers ---")
+    code.append("class _Tok:")
+    code.append("    def __init__(self, name): self._name = name")
+    code.append("    def __call__(self, lexeme): return (self._name, lexeme)")
+    code.append("    def __repr__(self): return self._name")
+    code.append("    def __eq__(self, other):")
+    code.append("        if isinstance(other, _Tok): return self._name == other._name")
+    code.append("        return self._name == other")
+    code.append("    def __hash__(self): return hash(self._name)")
+    code.append("")
+
+    # Collect all token names used in action blocks
+    token_names = set()
+    for rule in doc.rules:
+        if rule.action:
+            # Tokens called as functions: INT_LIT(lxm)
+            for m in _re.finditer(r'\breturn\s+([A-Z_][A-Z0-9_]*)\s*\(', rule.action):
+                token_names.add(m.group(1))
+            # Tokens returned bare: return KW_MACRO
+            for m in _re.finditer(r'\breturn\s+([A-Z_][A-Z0-9_]*)(?!\s*[\(\w])', rule.action):
+                name = m.group(1)
+                if name not in ('None', 'True', 'False'):
+                    token_names.add(name)
+
+    if token_names:
+        code.append("# Auto-generated token constructors from .yal action blocks")
+        for name in sorted(token_names):
+            code.append(f"{name} = _Tok({repr(name)})")
+        code.append("")
+
+    # Lexer engine
+    code.append(f"""
+        class Lexer:
+            def __init__(self, text=None, file_path=None):
+                if file_path:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        self.text = f.read()
+                elif text is not None:
+                    self.text = text
                 else:
-                    break
-                    
-            if last_accept_idx != -1:
-                lxm = self.text[self.pos:last_accept_pos]
-                if last_accept_pos > len(self.text):
-                    lxm = self.text[self.pos:] # ignore EOF character from matched string
-                    
-                self.pos = last_accept_pos
-                lexbuf = self.text # Exposed intentionally for generic usages
-""")
-    
+                    raise ValueError("Must provide either 'text' or 'file_path'")
+                self.pos = 0
+
+            def {doc.entrypoint_name}(self):
+                while self.pos < len(self.text) + 1:
+                    state = START_STATE
+                    last_accept_idx = -1
+                    last_accept_pos = -1
+                    current_pos = self.pos
+
+                    while current_pos <= len(self.text):
+                        char = self.text[current_pos] if current_pos < len(self.text) else chr(256)
+                        trans = TRANSITIONS.get(state, {{}})
+                        next_state = trans.get(char)
+                        if next_state is not None:
+                            state = next_state
+                            current_pos += 1
+                            if state in ACCEPTS:
+                                last_accept_idx = ACCEPTS[state]
+                                last_accept_pos = current_pos
+                        else:
+                            break
+
+                    if last_accept_idx != -1:
+                        lxm = self.text[self.pos:last_accept_pos]
+                        if last_accept_pos > len(self.text):
+                            lxm = self.text[self.pos:]
+                        self.pos = last_accept_pos
+                        lexbuf = self.text  # Exposed intentionally for generic usages
+    """)
+
+    # Embed rule actions
     first = True
     for i, rule in enumerate(doc.rules):
         prefix = "if" if first else "elif"
         first = False
         code.append(f"                {prefix} last_accept_idx == {i}:")
         if rule.action and rule.action.strip():
-            lines = rule.action.strip().splitlines()
-            for line in lines:
+            processed = _preprocess_action(rule.action.strip())
+            for line in processed.splitlines():
                 code.append(f"                    {line.strip()}")
         else:
             code.append("                    pass")
@@ -109,11 +147,34 @@ class Lexer:
 
             if self.pos >= len(self.text) and last_accept_pos > len(self.text):
                 break
-""")
+    """)
 
     if doc.trailer:
         code.append("")
         code.append(doc.trailer.strip())
+
+    # __main__ block
+    code.append("")
+    code.append("")
+    code.append("if __name__ == \"__main__\":")
+    code.append("    import sys")
+    code.append("    if len(sys.argv) > 1:")
+    code.append("        lexer = Lexer(file_path=sys.argv[1])")
+    code.append("        print(f\"Tokenizing file: {sys.argv[1]}\")")
+    code.append("    else:")
+    code.append("        src = input(\"Enter input to tokenize: \")")
+    code.append("        lexer = Lexer(text=src)")
+    code.append("    print(\"Tokens:\")")
+    code.append("    try:")
+    code.append("        while True:")
+    code.append(f"            tok = lexer.{doc.entrypoint_name}()")
+    code.append("            if tok is None:")
+    code.append("                continue")
+    code.append("            print(\"  \" + str(tok))")
+    code.append("            if tok == \"EOF\" or lexer.pos >= len(lexer.text):")
+    code.append("                break")
+    code.append("    except Exception as e:")
+    code.append("        print(f\"  [End of input: {e}]\")")
 
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write("\n".join(code))
